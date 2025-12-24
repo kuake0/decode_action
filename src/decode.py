@@ -57,14 +57,39 @@ def try_decode_base64(data):
 
 
 def extract_base64_encoded(data):
+    """从包含 base64.b64decode(...) 调用的文本中提取被引号包围的 base64 字符串。
+    支持单引号或双引号，若未找到或格式不匹配返回 None。
+    """
+    if data is None:
+        return None
     # 查找 base64.b64decode( 的起始位置
     start_idx = data.find("base64.b64decode(")
     if start_idx == -1:
         return None  # 如果未找到目标字符串，返回 None
-    # 查找 ' 的位置，从 base64.b64decode( 后面开始找
-    quote_idx = data.index("'", start_idx + len("base64.b64decode("))
-    # 提取 'XXXX' 中的 XXXX 部分
-    encoded_string = data[quote_idx + 1:data.index("'", quote_idx + 1)]
+    # 找到左括号位置
+    paren_idx = data.find("(", start_idx)
+    if paren_idx == -1:
+        return None
+    # 在左括号后查找第一个引号（单引号或双引号）
+    single_idx = data.find("'", paren_idx + 1)
+    double_idx = data.find('"', paren_idx + 1)
+    # 选择最近的正向引号位置
+    quote_idx = -1
+    quote_char = None
+    candidates = [(single_idx, "'"), (double_idx, '"')]
+    for pos, ch in candidates:
+        if pos != -1:
+            if quote_idx == -1 or pos < quote_idx:
+                quote_idx = pos
+                quote_char = ch
+    if quote_idx == -1:
+        # 找不到引号，无法安全提取
+        return None
+    # 查找对应的闭合引号
+    end_quote_idx = data.find(quote_char, quote_idx + 1)
+    if end_quote_idx == -1:
+        return None
+    encoded_string = data[quote_idx + 1:end_quote_idx]
     return encoded_string
 
 
@@ -74,27 +99,40 @@ def Encoded_script_decode(data):
 
 
 def decrypt_nested(data):
+    # 支持 None 输入并安全退出
+    if data is None:
+        print("未找到 base64 字符串，退出解密流程")
+        return None
+
     while True:
+        # data 可能是字符串（base64 文本）或 bytes
+        # 先尝试把 data 作为 base64 字符串解码
         new_data = try_decode_base64(data)
-        # print("解密前的数据：", data)
         new_data = try_decompress(new_data)
-        # print("解密后的数据：", new_data)
-        if "exec(" in str(new_data):
-            # 更新 decrypted_data 以便下一次循环使用
-            if "Encoded script" in str(new_data):
+        # 将 new_data 转为字符串以便文本匹配
+        new_data_str = new_data if isinstance(new_data, str) else (new_data.decode('utf-8', errors='ignore') if isinstance(new_data, (bytes, bytearray)) else str(new_data))
+
+        if "exec(" in new_data_str:
+            if "Encoded script" in new_data_str:
                 new_data = "该加密未适配 敬请期待"
                 print("该加密未适配 敬请期待")
                 break
-            elif "exec(" in str(new_data):
-                data = extract_base64_encoded(str(new_data))
+            elif "exec(" in new_data_str:
+                # 从 exec(...) 或类似输出中再次提取 base64 字符串
+                next_encoded = extract_base64_encoded(new_data_str)
+                if not next_encoded:
+                    print("未能从解密结果中提取到新的 base64 字符串，退出")
+                    break
+                # 为下一轮解密更新 data（保持为字符串）
+                data = next_encoded
+                continue
             else:
                 print("未知 加密 无法进一步解密")
                 new_data = "未知 加密 无法进一步解密"
-                break  # 如果 new_data 中不再包含 "exec"，跳出循环
-            # print(data)
+                break
         else:
             print("无法进一步解密，退出循环")
-            break  # 如果 new_data 中不再包含 "exec"，跳出循环
+            break
 
     return new_data  # 返回最终解密后的数据
 
@@ -107,7 +145,7 @@ with open('./input.py', 'r', encoding='utf-8') as file:
     # print(encoded_data)
 # 解密嵌套加密数据
 final_decrypted_data = decrypt_nested(encoded_data)
-# 输出最终解密结果
+# 输出最终解密结果:
 # print("最终解密结果:")
 def process_data(data):
     if isinstance(data, str):
